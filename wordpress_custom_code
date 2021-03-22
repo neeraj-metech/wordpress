@@ -1,0 +1,308 @@
+=============== featching post in wordpress start =====================
+<?php
+    // $args      = array('post_type' => 'testimonial', 'post_status' => 'publish', 'posts_per_page' => 10, 'paged' => 1,'cat' => '','tag_id' =>'');
+    $args      = array('post_type' => 'testimonial', 'post_status' => 'publish', 'posts_per_page' => -1);
+    $the_query = new WP_Query($args);
+    if ($the_query->have_posts()) :
+        while ($the_query->have_posts()) :
+                $the_query->the_post();
+                $post_thumbnail_id = get_post_thumbnail_id($post->ID);
+                $image             = wp_get_attachment_image_src($post_thumbnail_id, 'large');
+                ?>
+                <div class="col-md-6">
+                    <div class="new_box">
+                        <?php if ($image['0'] != '') { ?>
+                            <figure><img src="<?php echo $image['0']; ?>" alt="<?php the_title(); ?>" /></figure>
+                        <?php } ?>
+                        <h2><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h2>
+                        <h5><span>shot</span> by <?php echo get_the_author(); ?> / <?php the_time('g:i a'); ?> on <?php the_time('d F, Y'); ?></h5>
+                        <?php
+                        the_content();
+                        $tags_arr = get_the_tags();
+                        foreach ($tags_arr as $key => $value) {
+                            $link   = get_tag_link($value->term_id);
+                            $tags[] = '<a href="' . $link . '">' . $value->name . '</a>';
+                        }
+                        ?>
+                        <p>Industry: <?php echo implode(', ', $tags); ?></p>
+                        <?php echo do_shortcode("[SSB]"); ?>
+                        <?php if (get_field('publisher_name') != '') { ?>
+                            read more at <a href="<?php the_field('publisher_url'); ?>" target="_blank"><span><?php the_field('publisher_name'); ?></span></a>
+                        <?php } ?>
+                    </div>
+                </div>
+                <?php
+        endwhile;
+        wp_reset_postdata();
+    endif;
+    ?>
+=============== featching post in wordpress end =====================
+
+
+
+
+
+===============Ajax code in wordpress start=====================
+    
+    <form id="applyZipCode" onsubmit="return false;">
+        <input type="text" name="pincode" id="pincode" maxlength="6" value="<?php if(isset($_SESSION['PINCODE']) && $_SESSION['PINCODE']!=''){echo $_SESSION['PINCODE'];}else{echo '';}?>" />
+        <input type="submit" class="button" value="<?php _e('Apply', 'sumit_bansal') ?>" />
+    </form>
+    <?php wp_nonce_field('zipcode_nonce', 'zipcode_nonce'); ?>
+    
+	1. jquery code
+
+	jQuery(document).on('submit', '#applyZipCode', function (event) {
+        var applyZipCode = jQuery(this).data('applyZipCode');
+        var pincode = jQuery('#pincode').val();
+        jQuery('#pincode_msg').html('');
+        var length = pincode.length;
+        if(length < 6){
+            jQuery('#pincode_msg').append('Please enter a valid pincode.');
+            return false;
+        }
+        console.log(pincode.length);
+        if (pincode != '') {
+            jQuery.ajax({
+                type: "POST",
+                url: '<?php echo bloginfo("home"); ?>/ajax.php',
+                data: {
+                    _ajax_nonce: jQuery('#zipcode_nonce').val(), //nonce
+                    action: "check_delivery_location", //action
+                    pincode: pincode
+                },
+                beforeSend: function () {
+//            jQuery("#dvloader").show();
+                },
+                success: function (data) {
+                    var res = jQuery.parseJSON(data);
+                    if (res.msg_code!='SOK0000') {
+                        jQuery('#pincode_msg').append(res.msg);
+                    }else{
+                        var available = 'Deliver to '+ res.city + ' ' +pincode;
+                        jQuery('#selectDeliveryLocation').html(available);
+                        jQuery('#deliverLocationModal').modal('hide');
+                    }
+                }
+            });
+        }else{
+            jQuery('#pincode_msg').append('Please enter a valid pincode.');
+        }
+        return false;
+    });
+
+
+   2. function.php code
+
+   	add_action('wp_ajax_check_delivery_location', 'check_delivery_location');
+	if (!function_exists('check_delivery_location')) {
+
+	    function check_delivery_location(){
+	        global $wpdb;
+	        $table_name = $wpdb->prefix . "delivery_locations";
+	        if (!session_id()) {
+	            session_start();
+	        }
+	        $response = array();
+	        $pincode = $_POST['pincode'];
+	        $is_num = is_numeric($pincode);
+	        if ($pincode!='' && $is_num == 1) {
+	            $data = $wpdb->get_row("SELECT * FROM $table_name WHERE pincode = '$pincode'", ARRAY_A);
+	            if (!empty($data) && strtoupper($data['has_cod'])=='TRUE' && strtoupper($data['has_prepaid']) == 'TRUE') {
+	                $_SESSION['CITY'] = $data['city'];
+	                $_SESSION['PINCODE'] = $pincode;
+	                $response['city'] = $data['city'];
+	                $response['msg']  = 'Delivery is available.';
+	                $response['msg_code']  = 'SOK0000';
+	            }else{
+	                $response['msg']  = 'Delivery not available.';
+	                $response['msg_code']  = 'SOK0001';
+	            }
+	        }else{
+	          $response['msg']  = 'Please enter a valid pincode.';
+	          $response['msg_code']  = 'SOK0001';  
+	        }
+
+	        echo json_encode($response);
+	        die;
+
+	    }
+
+	}
+
+    3. make a file in root directory ajax.php
+        <?php
+            header('Access-Control-Allow-Origin: https://ipnewsshots.com');
+            $url = parse_url($_SERVER['HTTP_REFERER']);
+            if (in_array('safeokid.com', $url)) {
+                define('WP_USE_THEMES', false);
+                require_once( dirname(__FILE__) . '/wp-load.php' );
+                extract($_POST);
+                if ($action == 'check_delivery_location') {
+                    check_delivery_location();
+                }
+            } else {
+                header("HTTP/1.0 404 Not Found");
+            }
+        ?>
+===============Ajax code in wordpress End =====================
+
+
+===============Add review/commnets in wordpress start===================
+    function insert_product_reviews($review_data) {
+            global $wpdb;
+            $response= array();
+            $sku = 'SOK9BPRRSH';
+            $table_name = $wpdb->prefix . "postmeta";
+            $post_id    = $wpdb->get_row("SELECT * FROM $table_name WHERE meta_value = '" . $sku . "' AND meta_key = '_sku' ", ARRAY_A);
+            $comment_post_ID = $post_id['post_id'];
+            if ($comment_post_ID!='') {
+                $time = current_time('mysql');
+                $data = array(
+                'comment_post_ID' => $comment_post_ID,
+                'comment_author' => 'Neeraj',
+                'comment_author_email' => 'admin@admin.com',
+                'comment_author_url' => '',
+                'comment_content' => '<b>title :- </b>content here tesing review',
+                'comment_type' => 'review',
+                'comment_parent' => 0,
+                'user_id' => 1,
+                'comment_author_IP' => '',
+                'comment_agent' => '',
+                'comment_date' => $time,
+                'comment_approved' => 1,
+                );
+                $comment_id = wp_insert_comment($data);
+                $reating_mata = update_comment_meta( $comment_id, 'rating', 4 );
+                $response['comment_id'] = $comment_id;
+                $response['reating_mata'] = $reating_mata;
+                return $response;
+            }
+        }
+===============Add review/commnets in wordpress end=====================
+
+
+
+=============== Insert custome data in custom table =====================
+if ( isset( $_POST['submit'] ) ){
+    global $wpdb;
+    $tablename=$wpdb->prefix.'post_job';
+    $data=array(
+        'organizationname' => $_POST['organizationname'], 
+        'post' => $_POST['post'],
+        'publishfrom' => $_POST['publishfrom'], 
+        'publishupto' => $_POST['publishupto'],
+        'qualification1' => $_POST['qualification1']
+        );
+
+    $wpdb->insert( $tablename, $data);
+}
+=============== Insert custome data in custom table =====================
+
+
+===============Get SOME IMPORTENT FILEDS START=====================
+$category_id  = getCurrentCatID();
+$tag       = get_queried_object();
+$tag_id    = $tag->term_id;
+
+$order = wc_get_order($order_id); // by using orderid get order details in woocommerse
+$emailId = $order->get_billing_email();
+the_time('g:i a'); // post time
+the_time('d F, Y'); // post date
+the_content() // post content
+echo get_the_author() // author name
+the_permalink()  // post link
+
+    ******** thumbnail image **************
+    $the_query->the_post();
+    $post_thumbnail_id = get_post_thumbnail_id($post->ID);
+    $image             = wp_get_attachment_image_src($post_thumbnail_id, 'large');
+    ******** thumbnail image **************
+    
+    ********** ajax file ************
+        header('Access-Control-Allow-Origin: https://ipnewsshots.com');
+        $url = parse_url($_SERVER['HTTP_REFERER']);
+        if (in_array('ipnewsshots.com', $url)) {
+            define('WP_USE_THEMES', false);
+            require_once( dirname(__FILE__) . '/wp-load.php' );
+            extract($_POST);
+            if ($action == 'postloadmore') {    
+            }
+        }else{
+            header("HTTP/1.0 404 Not Found");
+        }
+    ********** ajax file ************   
+
+    the_post_thumbnail() // for post feature image
+    the_title() // post title
+    the_content()  // post content
+
+    <?php echo get_bloginfo('template_directory'); ?>/js/jquery-3.2.1.min.js // add dynamic css/js links
+    <?php bloginfo('home'); ?> // log link
+    <?php echo get_the_date('j M Y'); ?> // publish post date
+
+    the_permalink(9); // footer links
+
+
+===============Get SOME IMPORTENT FILEDS END=====================
+
+
+===============wp_mail() for sending a mail=====================
+if ($action == 'special_offer_email') {
+        $response = array();
+        $subject = 'Special offer';
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        $message = '<p>Thank you for signing up to receive regular updates regarding your baby we hope these tips are helpful to keep your baby safe. As a gesture to welcome you safeokid family here is a coupon to get 10 % off on your first order.</p><br>';
+        $message .= '<p style="font-size:14px;"><b>Coupon Code: SPECIAL10PERC</b></p><br/>';
+        $message .= 'Best Regards,<br/>';
+        $message .= 'Safeokid Team';
+        $email = wp_mail($userEmail, $subject, $message, $headers, $attachments);
+        if ($email) {
+            $response['msg'] = $message;
+            $response['msg_code'] = 'SOK0000';
+        } else {
+            $response['msg'] = 'Mail not send.';
+            $response['msg_code'] = 'SOK0001';
+        }
+        echo json_encode($response);
+    }
+===============wp_mail() for sending a mail=====================
+
+
+===============Woocommerce get all orders function=====================
+global $woocommerce;
+echo WC()->countries->get_states( 'IN' )['HR']; die;
+$orders = get_posts( array(
+        'numberposts' => -1,
+        'meta_key'    => '_customer_user',
+        'post_type'   => 'shop_order',
+        'post_status' => array_keys( wc_get_is_paid_statuses() ), //wc-processing, wc-completed, wc-failed, wc-cancelled
+    ) ); // we can also use wp_query
+    foreach($orders as $order){
+        $order_details = wc_get_order( $order->ID );
+        $order_data = $order_details->get_data();
+        $order_items = $order_details->get_items();
+        
+        $state = WC()->countries->get_states( $order_data['billing']['country'] )[$order_data['billing']['state']];
+        $country = WC()->countries->countries[ $order_data['billing']['country'] ];
+
+        $response['company_name'] = $order_data['billing']['company'];
+        $response['billing_date'] = $order_data['date_created']->date('Y-m-d H:i:s');
+
+        foreach ($order_items as $item ) {
+            $product        = $item->get_product();
+            $product_info = $product->get_data();
+            $item_info = $item->get_data();
+
+            $response['order_items']['name'] = $item_info['name'];
+            $response['order_items']['sku'] = $product_info['sku'];
+        }
+    }
+===============Woocommerce get all orders function=====================
+
+
+
+
+
+
+
